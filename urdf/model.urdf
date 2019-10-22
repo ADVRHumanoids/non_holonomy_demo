@@ -41,7 +41,7 @@
      <geometry>
        <box size="1 0.1 0.3" />
      </geometry>
-     <material name="Cyan">
+     <material name="Yellow">
        <color rgba="1.0 0.3 0.3 1.0"/>
      </material>
    </visual>
@@ -66,7 +66,7 @@
      <geometry>
        <box size="1 0.1 0.3" />
      </geometry>
-     <material name="Cyan">
+     <material name="Blue">
        <color rgba="0.3 0.3 1.0 1.0"/>
      </material>
    </visual>
