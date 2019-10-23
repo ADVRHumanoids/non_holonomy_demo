@@ -2,13 +2,15 @@
 
     <param name="robot_description" textfile="$(find non_holonomy_demo)/urdf/model.urdf"/>
 
-    <!--<node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher">
-        <param name="use_gui" value="true"/>
-    </node>-->
+    <node pkg="non_holonomy_demo" type="non_holonomy_demo.py" name="non_holonomy_demo">
+    </node>
 
     <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher">
-        <param name="use_gui" value="true"/>
     </node>
+    
+    <node type="rviz" name="rviz" pkg="rviz"
+        args="-d $(find non_holonomy_demo)/config/non_holonomy_demo.rviz" output="screen"/>
+    
 
 
 </launch>

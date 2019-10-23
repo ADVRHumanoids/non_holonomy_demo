@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 from casadi import *
 import matlogger2.matlogger as matl
-import centroidal_planner.pycpl_casadi as cpl_cas
+import casadi_kin_dyn.pycasadi_kin_dyn as cas_kin_dyn
 import rospy
 
 logger = matl.MatLogger2('/tmp/non_holonomy_demo_log')
 logger.setBufferMode(matl.BufferMode.CircularBuffer)
 
 urdf = rospy.get_param('robot_description')
+kindyn = cas_kin_dyn.CasadiKinDyn(urdf)
 
-FK_base_link_str = cpl_cas.generate_forward_kin(urdf, 'base_link')
+FK_base_link_str = kindyn.fk('base_link')
 FK_base_link = Function.deserialize(FK_base_link_str)
 
-id_string = cpl_cas.generate_inv_dyn(urdf)
+id_string = kindyn.rnea()
 ID = Function.deserialize(id_string)
 
 tf = 2.  # Normalized time horizon
@@ -182,8 +183,8 @@ for k in range(ns):
     Qdot_k = X[k][nq:nq + nv]
 
     q_zero = MX.zeros(nq)
-    g_k = ID(q=Q_k, qdot=q_zero, qddot=q_zero)['tau']
-    Tau_k = ID(q=Q_k, qdot=Qdot_k, qddot=Qddot[k])['tau'] - g_k
+    g_k = ID(q=Q_k, v=q_zero, a=q_zero)['tau']
+    Tau_k = ID(q=Q_k, v=Qdot_k, a=Qddot[k])['tau'] - g_k
 
     J += 10*integrator_out['qf']
 #    J += 1.*Time[k]
@@ -335,6 +336,7 @@ joint_state_pub.name = ['t_x_joint', 't_z_joint', 'rot_joint', 'left_joint', 'ri
 
 
 while not rospy.is_shutdown():
+    rospy.sleep(1.0)
     for k in range(n_res):
         joint_state_pub.header.stamp = rospy.Time.now()
         joint_state_pub.position = q_hist_res[:, k]
