@@ -12,12 +12,17 @@ kindyn = cas_kin_dyn.CasadiKinDyn(urdf)
 
 FK_base_link_str = kindyn.fk('base_link')
 FK_base_link = Function.deserialize(FK_base_link_str)
+print(FK_base_link)
 
 id_string = kindyn.rnea()
 ID = Function.deserialize(id_string)
+print(ID)
 
-tf = 2.  # Normalized time horizon
-ns = 30  # number of shooting nodes
+cd_string = kindyn.computeCentroidalDynamics()
+CD = Function.deserialize(cd_string)
+
+tf = 1.  # Normalized time horizon
+ns = 100  # number of shooting nodes
 
 nc = 4  # number of contacts
 
@@ -60,16 +65,16 @@ x0_max = x_init
 
 qf_min = q_min
 qf_max = q_max
-qf_min[2] = 3.14
-qf_max[2] = 3.14
+qf_min[2] = 1.5
+qf_max[2] = 1.5
 
 xf_min = np.append(qf_min, np.zeros_like(qdot_min))
 xf_max = np.append(qf_max, np.zeros_like(qdot_min))
 #xf_min = x_init
 #xf_max = x_init
 
-t_min = 0.1
-t_max = 0.1
+t_min = 0.01
+t_max = 0.01
 
 # Model equations
 x = vertcat(q, qdot)
@@ -96,6 +101,8 @@ X = X + DT / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 Q = Q + DT / 6 * (k1_q + 2 * k2_q + 2 * k3_q + k4_q)
 
 F_RK = Function('F_RK', [X0, U, Time], [X, Q], ['x0', 'p', 'time'], ['xf', 'qf'])
+
+# F_RK = integrator('integrator', 'cvodes', {'x': x, 'p': qddot, 'ode': xdot, 'quad': L}, {'t0': 0, 'tf': tf/ns})
 
 # Start with an empty NLP
 NV = nx*(ns+1) + nv*ns + ns
@@ -172,19 +179,20 @@ q_history = MX(Sparsity.dense(nq, ns+1))
 qdot_history = MX(Sparsity.dense(nv, ns+1))
 qddot_history = MX(Sparsity.dense(nv, ns))
 h_history = MX(Sparsity.dense(1, ns))
-
+cd_history = MX(Sparsity.dense(6, ns))
+dcd_history = MX(Sparsity.dense(6, ns))
 
 
 for k in range(ns):
 
-    integrator_out = F_RK(x0=X[k], p=Qddot[k], time=Time[k])
+    integrator_out = F_RK(x0=X[k], p=Qddot[k], time=tf/ns)
 
     Q_k = X[k][0:nq]
     Qdot_k = X[k][nq:nq + nv]
 
     q_zero = MX.zeros(nq)
     g_k = ID(q=Q_k, v=q_zero, a=q_zero)['tau']
-    Tau_k = ID(q=Q_k, v=Qdot_k, a=Qddot[k])['tau'] - g_k
+    Tau_k = ID(q=Q_k, v=Qdot_k, a=Qddot[k])['tau']
 
     J += 10*integrator_out['qf']
 #    J += 1.*Time[k]
@@ -202,11 +210,21 @@ for k in range(ns):
     # g_min += np.append(np.zeros((6, 1)), np.full((12, 1), -400.)).tolist()
     # g_max += np.append(np.zeros((6, 1)), np.full((12, 1), 400.)).tolist()
 
+    h_lin = CD(q=Q_k, v=Qdot_k, a=Qddot[k])['h_lin']
+    h_ang = CD(q=Q_k, v=Qdot_k, a=Qddot[k])['h_ang']
+    dh_lin = CD(q=Q_k, v=Qdot_k, a=Qddot[k])['dh_lin']
+    dh_ang = CD(q=Q_k, v=Qdot_k, a=Qddot[k])['dh_ang']
+
     tau_history[:, k] = Tau_k
     q_history[0:nq, k] = Q_k
     qdot_history[0:nv, k] = Qdot_k
     qddot_history[0:nv, k] = Qddot[k]
     h_history[0, k] = Time[k]
+    cd_history[0:3, k] = h_lin
+    cd_history[3:6, k] = h_ang
+    dcd_history[0:3, k] = dh_lin
+    dcd_history[3:6, k] = dh_ang
+
 
 q_history[0:nq, ns] = X[ns][0:nq]
 qdot_history[0:nv, ns] = X[ns][nq:nx]
@@ -222,7 +240,7 @@ v_max = vertcat(*v_max)
 
 # Create an NLP solver
 prob = {'f': J, 'x': V, 'g': g}
-opts = {'ipopt.tol': 1e-3,
+opts = {'ipopt.tol': 1e-9,
         'ipopt.max_iter': 2000,
         'ipopt.linear_solver': 'ma57'}
 solver = nlpsol('solver', 'ipopt', prob, opts)
@@ -244,13 +262,22 @@ tau_hist_value = tau_hist(w_opt).full()
 
 q_hist = Function("q_hist", [V], [q_history])
 q_hist_value = q_hist(w_opt).full()
+
 qdot_hist = Function("qdot_hist", [V], [qdot_history])
 qdot_hist_value = qdot_hist(w_opt).full()
+
 qddot_hist = Function("qddot_hist", [V], [qddot_history])
 qddot_hist_value = qddot_hist(w_opt).full()
 
 h_hist = Function("h_hist", [V], [h_history])
 h_hist_value = h_hist(w_opt).full()
+
+cd_hist = Function("cd_hist", [V], [cd_history])
+cd_hist_value = cd_hist(w_opt).full()
+
+dcd_hist = Function("dcd_hist", [V], [dcd_history])
+dcd_hist_value = dcd_hist(w_opt).full()
+
 
 logger.add('q', q_hist_value)
 logger.add('qdot', qdot_hist_value)
@@ -258,6 +285,9 @@ logger.add('qddot', qddot_hist_value)
 logger.add('tau', tau_hist_value)
 logger.add('h', h_hist_value)
 logger.add('ns', ns)
+logger.add('cd', cd_hist_value)
+logger.add('dcd', dcd_hist_value)
+
 
 
 # Resampler
